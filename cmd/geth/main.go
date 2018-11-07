@@ -88,6 +88,7 @@ var (
 		utils.ULCMinTrustedFractionFlag,
 		utils.SyncModeFlag,
 		utils.GCModeFlag,
+		utils.TrieTimeoutFlag,
 		utils.LightServFlag,
 		utils.LightPeersFlag,
 		utils.LightKDFFlag,
