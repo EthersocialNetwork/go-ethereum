@@ -152,8 +152,8 @@ func speedyHashForBlock(ctx *periodContext, blocknum uint64, nonce uint64, heade
 
 func TestProgpowHash(t *testing.T) {
 	mixHash, finalHash, _ := hashForBlock(0, 0, common.Hash{})
-	expHash := common.FromHex("5391770a00140cfab1202df86ab47fb86bb299fe4386e6d593d4416b9414df92")
-	expMix := common.FromHex("d46c7c0a927acead9f943bee6ed95bba40dfbe6c24b232af3e7764f6c8849d41")
+	expHash := common.FromHex("752b1d57497c9f66686acfa9a8251d4e2ad30dd9d09c536aed7085ee1ad69132")
+	expMix := common.FromHex("efc5c1fe4726469763ceb5fdcf3022b2915f9f36080b096da7c6e71fa34b6c26")
 	if !bytes.Equal(mixHash, expMix) {
 		t.Errorf("mixhash err, got %x expected %x", mixHash, expMix)
 	}

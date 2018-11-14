@@ -8,12 +8,13 @@ import (
 
 const (
 	progpowCacheWords   = 4 * 1024 // Total size 16*1024 bytes
-	progpowLanes        = 32
-	progpowRegs         = 16
-	progpowCntCache     = 8
-	progpowCntMath      = 8
+	progpowLanes        = 16
+	progpowRegs         = 32
+	progpowCntCache     = 12
+	progpowCntMath      = 20
 	progpowPeriodLength = 50 // Blocks per progpow epoch (N)
-	progpowCntMem       = loopAccesses
+	progpowDagLoads     = 4
+	progpowCntDag       = loopAccesses
 	progpowMixBytes     = 2 * mixBytes
 )
 
@@ -133,10 +134,10 @@ func keccakF800Short(headerHash []byte, nonce uint64, result []uint32) uint64 {
 		st[10+i] = result[i]
 	}
 
-	for r := 0; r < 21; r++ {
+	for r := 0; r <= 21; r++ {
 		keccakF800Round(&st, r)
 	}
-	keccakF800Round(&st, 21)
+	//keccakF800Round(&st, 21)
 	ret := make([]byte, 8)
 	binary.BigEndian.PutUint32(ret[4:], st[0])
 	binary.BigEndian.PutUint32(ret, st[1])
@@ -227,9 +228,10 @@ func merge(a *uint32, b uint32, r uint32) {
 	}
 }
 
-func progpowInit(seed uint64) (kiss99State, [progpowRegs]uint32) {
+func progpowInit(seed uint64) (kiss99State, [progpowRegs]uint32, [progpowRegs]uint32) {
 	var randState kiss99State
-	var mixSeq [progpowRegs]uint32
+	var mixSeqDst [progpowRegs]uint32
+	var mixSeqCache [progpowRegs]uint32
 
 	fnvHash := uint32(0x811c9dc5)
 
@@ -238,19 +240,25 @@ func progpowInit(seed uint64) (kiss99State, [progpowRegs]uint32) {
 	randState.jsr = fnv1a(&fnvHash, lower32(seed))
 	randState.jcong = fnv1a(&fnvHash, higher32(seed))
 
-	// Create a random sequence of mix destinations for merge()
-	// guaranteeing every location is touched once
-	// Uses Fisher CYates shuffle
+	// Create a random sequence of mix destinations for merge() and mix sources for cache reads
+	// guaranteeing every destination merged once
+	// guarantees no duplicate cache reads, which could be optimized away
+	// Uses Fisher-Yates shuffle
 	for i := uint32(0); i < progpowRegs; i++ {
-		mixSeq[i] = i
+		mixSeqDst[i] = i
+		mixSeqCache[i] = i
 	}
 	for i := uint32(progpowRegs - 1); i > 0; i-- {
 		j := kiss99(&randState) % (i + 1)
-		temp := mixSeq[i]
-		mixSeq[i] = mixSeq[j]
-		mixSeq[j] = temp
+		temp := mixSeqDst[i]
+		mixSeqDst[i] = mixSeqDst[j]
+		mixSeqDst[j] = temp
+		j = kiss99(&randState) % (i + 1)
+		temp = mixSeqCache[i]
+		mixSeqCache[i] = mixSeqCache[j]
+		mixSeqCache[j] = temp
 	}
-	return randState, mixSeq
+	return randState, mixSeqDst, mixSeqCache
 }
 
 // Random math between two input values
@@ -294,67 +302,73 @@ func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint3
 	// Global offset uses mix[0] to guarantee it depends on the load result
 	gOffset := mix[loop%progpowLanes][0] % datasetSize
 	gOffset = gOffset * progpowLanes
-	//iMax := uint32(0)
+	iMax := uint32(0)
 
-	dagData := lookup(2 * gOffset)
+	dagData := lookup(progpowDagLoads * gOffset)
 
 	// Lanes can execute in parallel and will be convergent
 	for l := uint32(0); l < progpowLanes; l++ {
-		mixSeqCnt := uint32(0)
+		mixSeqDstCnt := uint32(0)
+		mixSeqCacheCnt := uint32(0)
 
-		index := 2 * (gOffset + l)
+		index := progpowDagLoads * (gOffset + l)
 		if l != 0 && index%16 == 0 {
 			dagData = lookup(index)
 		}
 
 		// global load to sequential locations
-		data64 := binary.LittleEndian.Uint64(dagData[(index%16)*4:])
+		var gData [progpowDagLoads]uint32
+		for i := uint32(0); i < progpowDagLoads; i++ {
+			gData[i] = binary.LittleEndian.Uint32(dagData[(index%16)*4+i*4:])
+		}
 
 		// initialize the seed and mix destination sequence
-		randState, mixSeq := progpowInit(seed)
+		randState, mixSeqDst, mixSeqCache := progpowInit(seed)
 
-		//if progpowCntCache > progpowCntMath {
-		//	iMax = progpowCntCache
-		//} else {
-		//	iMax = progpowCntMath
-		//}
+		if progpowCntCache > progpowCntMath {
+			iMax = progpowCntCache
+		} else {
+			iMax = progpowCntMath
+		}
 
-		for i := uint32(0); i < 8; i++ {
-			//if i < progpowCntCache
-			{
+		for i := uint32(0); i < iMax; i++ {
+			if i < progpowCntCache {
 				// Cached memory access
-				// lanes access random location
-				src1 := kiss99(&randState) % progpowRegs
+				// lanes access random 32-bit locations within the first portion of the DAG
+				src1 := mixSeqCache[mixSeqCacheCnt%progpowRegs]
+				mixSeqCacheCnt++
 				offset := mix[l][src1] % progpowCacheWords
-				data32 := cDag[offset]
-				dest := mixSeq[mixSeqCnt%progpowRegs]
-				mixSeqCnt++
+				data := cDag[offset]
+				dest := mixSeqDst[mixSeqDstCnt%progpowRegs]
+				mixSeqDstCnt++
 				r := kiss99(&randState)
-				merge(&mix[l][dest], data32, r)
+				merge(&mix[l][dest], data, r)
 			}
 
-			//if i < progpowCntMath
-			{
+			if i < progpowCntMath {
 				// Random Math
 				src11 := kiss99(&randState)
 				src1 := src11 % progpowRegs
 				src2 := kiss99(&randState) % progpowRegs
 				r1 := kiss99(&randState)
 				r2 := kiss99(&randState)
-				dest := mixSeq[mixSeqCnt%progpowRegs]
-				mixSeqCnt++
-				data32 := progpowMath(mix[l][src1], mix[l][src2], r1)
-				merge(&mix[l][dest], data32, r2)
+				dest := mixSeqDst[mixSeqDstCnt%progpowRegs]
+				mixSeqDstCnt++
+				data := progpowMath(mix[l][src1], mix[l][src2], r1)
+				merge(&mix[l][dest], data, r2)
 			}
 		}
 
+		// Consume the global load data at the very end of the loop to allow full latency hiding
+		// Always merge into mix[0] to feed the offset calculation
 		r1 := kiss99(&randState)
-		r2 := kiss99(&randState)
-
-		merge(&mix[l][0], lower32(data64), r1)
-		dest := mixSeq[mixSeqCnt%progpowRegs]
-		mixSeqCnt++
-		merge(&mix[l][dest], higher32(data64), r2)
+		merge(&mix[l][0], gData[0], r1)
+		for i := uint32(1); i < progpowDagLoads; i++ {
+			dest := mixSeqDst[mixSeqDstCnt%progpowRegs]
+			mixSeqDstCnt++
+			r2 := kiss99(&randState)
+			merge(&mix[l][dest], gData[i], r2)
+		}
 	}
 }
 
@@ -370,7 +384,7 @@ func progpow(hash []byte, nonce uint64, size uint64, blockNumber uint64, cDag []
 		mix[lane] = fillMix(seed, lane)
 	}
 	period := (blockNumber / progpowPeriodLength)
-	for l := uint32(0); l < progpowCntMem; l++ {
+	for l := uint32(0); l < progpowCntDag; l++ {
 		progpowLoop(period, l, &mix, lookup, cDag, uint32(size/progpowMixBytes))
 	}
 
