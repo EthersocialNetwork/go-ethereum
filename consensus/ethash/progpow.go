@@ -2,19 +2,21 @@ package ethash
 
 import (
 	"encoding/binary"
-	"github.com/ethereum/go-ethereum/crypto/sha3"
 	"math/bits"
+
+	"github.com/ethereum/go-ethereum/crypto/sha3"
 )
 
 const (
-	progpowCacheWords   = 4 * 1024 // Total size 16*1024 bytes
-	progpowLanes        = 16
-	progpowRegs         = 32
+	progpowCacheBytes   = 16 * 1024             // Total size 16*1024 bytes
+	progpowCacheWords   = progpowCacheBytes / 4 // Total size 16*1024 bytes
+	progpowLanes        = 16                    // The number of parallel lanes that coordinate to calculate a single hash instance.
+	progpowRegs         = 32                    // The register file usage size
+	progpowDagLoads     = 4                     // Number of uint32 loads from the DAG per lane
 	progpowCntCache     = 12
 	progpowCntMath      = 20
-	progpowPeriodLength = 50 // Blocks per progpow epoch (N)
-	progpowDagLoads     = 4
-	progpowCntDag       = loopAccesses
+	progpowPeriodLength = 50           // Blocks per progpow epoch (N)
+	progpowCntDag       = loopAccesses // Number of DAG accesses, same as ethash (64)
 	progpowMixBytes     = 2 * mixBytes
 )
 
@@ -250,13 +252,9 @@ func progpowInit(seed uint64) (kiss99State, [progpowRegs]uint32, [progpowRegs]ui
 	}
 	for i := uint32(progpowRegs - 1); i > 0; i-- {
 		j := kiss99(&randState) % (i + 1)
-		temp := mixSeqDst[i]
-		mixSeqDst[i] = mixSeqDst[j]
-		mixSeqDst[j] = temp
+		mixSeqDst[i], mixSeqDst[j] = mixSeqDst[j], mixSeqDst[i]
 		j = kiss99(&randState) % (i + 1)
-		temp = mixSeqCache[i]
-		mixSeqCache[i] = mixSeqCache[j]
-		mixSeqCache[j] = temp
+		mixSeqCache[i], mixSeqCache[j] = mixSeqCache[j], mixSeqCache[i]
 	}
 	return randState, mixSeqDst, mixSeqCache
 }
@@ -300,7 +298,7 @@ func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint3
 	cDag []uint32, datasetSize uint32) {
 	// All lanes share a base address for the global load
 	// Global offset uses mix[0] to guarantee it depends on the load result
-	gOffset := mix[loop%progpowLanes][0] % datasetSize
+	gOffset := mix[loop%progpowLanes][0] % (64 * datasetSize / (progpowLanes * progpowDagLoads))
 	gOffset = gOffset * progpowLanes
 	iMax := uint32(0)
 
@@ -347,27 +345,22 @@ func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint3
 
 			if i < progpowCntMath {
 				// Random Math
-				src11 := kiss99(&randState)
-				src1 := src11 % progpowRegs
+				src1 := kiss99(&randState) % progpowRegs
 				src2 := kiss99(&randState) % progpowRegs
-				r1 := kiss99(&randState)
-				r2 := kiss99(&randState)
 				dest := mixSeqDst[mixSeqDstCnt%progpowRegs]
 				mixSeqDstCnt++
-				data := progpowMath(mix[l][src1], mix[l][src2], r1)
-				merge(&mix[l][dest], data, r2)
+				data := progpowMath(mix[l][src1], mix[l][src2], kiss99(&randState))
+				merge(&mix[l][dest], data, kiss99(&randState))
 			}
 		}
 
 		// Consume the global load data at the very end of the loop to allow full latency hiding
 		// Always merge into mix[0] to feed the offset calculation
-		r1 := kiss99(&randState)
-		merge(&mix[l][0], gData[0], r1)
-		for i := uint32(1); i < progpowDagLoads; i++ {
+		merge(&mix[l][0], gData[0], kiss99(&randState))
+		for i := 1; i < progpowDagLoads; i++ {
 			dest := mixSeqDst[mixSeqDstCnt%progpowRegs]
 			mixSeqDstCnt++
-			r2 := kiss99(&randState)
-			merge(&mix[l][dest], gData[i], r2)
+			merge(&mix[l][dest], gData[i], kiss99(&randState))
 		}
 	}
 }
