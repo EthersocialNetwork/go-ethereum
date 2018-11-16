@@ -299,25 +299,24 @@ func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint3
 	// All lanes share a base address for the global load
 	// Global offset uses mix[0] to guarantee it depends on the load result
 	gOffset := mix[loop%progpowLanes][0] % (64 * datasetSize / (progpowLanes * progpowDagLoads))
-	gOffset = gOffset * progpowLanes
 	iMax := uint32(0)
 
-	dagData := lookup(progpowDagLoads * gOffset)
+	dagData := make([]byte, progpowLanes*progpowDagLoads*4)
+	for i := uint32(0); i < progpowDagLoads; i++ {
+		copy(dagData[progpowLanes*progpowDagLoads*i:], lookup((gOffset*progpowLanes+i*progpowDagLoads)*4))
+	}
 
 	// Lanes can execute in parallel and will be convergent
 	for l := uint32(0); l < progpowLanes; l++ {
 		mixSeqDstCnt := uint32(0)
 		mixSeqCacheCnt := uint32(0)
 
-		index := progpowDagLoads * (gOffset + l)
-		if l != 0 && index%16 == 0 {
-			dagData = lookup(index)
-		}
+		index := (l % progpowLanes) * progpowDagLoads
 
 		// global load to sequential locations
 		var gData [progpowDagLoads]uint32
 		for i := uint32(0); i < progpowDagLoads; i++ {
-			gData[i] = binary.LittleEndian.Uint32(dagData[(index%16)*4+i*4:])
+			gData[i] = binary.LittleEndian.Uint32(dagData[(index+i)*4:])
 		}
 
 		// initialize the seed and mix destination sequence
