@@ -311,7 +311,7 @@ func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint3
 		mixSeqDstCnt := uint32(0)
 		mixSeqCacheCnt := uint32(0)
 
-		index := (l % progpowLanes) * progpowDagLoads
+		index := ((l ^ loop) % progpowLanes) * progpowDagLoads
 
 		// global load to sequential locations
 		var gData [progpowDagLoads]uint32
