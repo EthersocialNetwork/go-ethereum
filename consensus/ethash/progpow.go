@@ -223,10 +223,11 @@ func merge(a *uint32, b uint32, r uint32) {
 		*a = (*a * 33) + b
 	case 1:
 		*a = (*a ^ b) * 33
+	// prevent rotate by 0 which is a NOP
 	case 2:
-		*a = rotl32(*a, ((r>>16)%32)) ^ b
+		*a = rotl32(*a, ((r>>16)%31) + 1) ^ b
 	default:
-		*a = rotr32(*a, ((r>>16)%32)) ^ b
+		*a = rotr32(*a, ((r>>16)%31) + 1) ^ b
 	}
 }
 
@@ -344,8 +345,13 @@ func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint3
 
 			if i < progpowCntMath {
 				// Random Math
-				src1 := kiss99(&randState) % progpowRegs
-				src2 := kiss99(&randState) % progpowRegs
+				// Generate 2 unique sources
+				src_rnd := kiss99(&randState) % (progpowRegs * (progpowRegs-1))
+				src1 := src_rnd % progpowRegs // 0 <= src1 < progpowRegs
+				src2 := src_rnd / progpowRegs // 0 <= src2 < progpowRegs - 1
+				if src2 >= src1 {
+					src2++ // src2 is now any reg other than src1
+				}
 				dest := mixSeqDst[mixSeqDstCnt%progpowRegs]
 				mixSeqDstCnt++
 				data := progpowMath(mix[l][src1], mix[l][src2], kiss99(&randState))
