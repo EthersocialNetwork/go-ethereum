@@ -1129,19 +1129,18 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, []
 	abort, results := bc.engine.VerifyHeaders(bc, headers, seals)
 	defer close(abort)
 
-	// check 51% Attack
-	errChain := bc.CheckChainForAttack(chain)
-	if errChain != nil {
-		fmt.Println(errChain.Error())
-	}
-
 	// Peek the error for the first block to decide the directing import logic
 	it := newInsertIterator(chain, results, bc.Validator())
 
 	block, err := it.next()
-	if errChain != nil {
-		err = errChain
+
+	// Penalty System to check delayed chain
+	err2 := bc.CheckDelayedChain(chain)
+	if err2 != nil {
+		fmt.Println(err2.Error())
+		err = err2
 	}
+
 	switch {
 	// First block is pruned, insert as sidechain and reorg only if TD grows enough
 	case err == consensus.ErrPrunedAncestor:
