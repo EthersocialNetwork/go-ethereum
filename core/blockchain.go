@@ -1081,10 +1081,10 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 	// Start a parallel signature recovery (signer will fluke on fork transition, minimal perf loss)
 	senderCacher.recoverFromBlocks(types.MakeSigner(bc.chainConfig, chain[0].Number()), chain)
 
-	// check 51% Attack
-	errChain := bc.CheckChainForAttack(chain)
-	if errChain != nil {
-		fmt.Println(errChain.Error())
+	// Penalty System to check delayed chain
+	err2 := bc.CheckDelayedChain(chain)
+	if err2 != nil {
+		fmt.Println(err2.Error())
 	}
 
 	// Iterate over the blocks and insert when the verifier permits
@@ -1103,8 +1103,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 		bstart := time.Now()
 
 		err := <-results
-		if errChain != nil {
-			err = errChain
+		if err2 != nil {
+			err = err2
 		}
 		if err == nil {
 			err = bc.Validator().ValidateBody(block)
