@@ -23,13 +23,21 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
 )
 
 var syncing bool
 
 const (
-	description = "Penalty System (based on the PirlGuard by Pirl Team)"
+	description         = "Penalty System (based on the PirlGuard by Pirl Team)"
+	delayedBlockInfoLen = 3
+	delayedBlockWarnLen = 15
+)
+
+var (
+	blockDelayedMeter = metrics.NewRegisteredMeter("chain/block/delayed", nil)
+	blockPenaltyMeter = metrics.NewRegisteredMeter("chain/block/penalty", nil)
 )
 
 // CheckDelayedChain will check possible 51% attack.
@@ -59,13 +67,17 @@ func (bc *BlockChain) CheckDelayedChain(blocks types.Blocks) error {
 	}
 
 	var penalty uint64
-	if syncing && len(blocks) > int(params.DelayedBlockLength) && current > uint64(params.PenaltySystemBlock) {
-		context := []interface{}{
-			"sync status", syncing, "description", description,
+	if syncing && current > uint64(params.PenaltySystemBlock) && current > blocks[0].NumberU64() && (current - blocks[0].NumberU64()) > delayedBlockInfoLen {
+		delayed, score := bc.penaltyForBlocks(blocks)
+		logFn := log.Info
+		if delayed > delayedBlockWarnLen {
+			logFn = log.Warn
 		}
-		log.Info("Checking the legitimity of the chain", context...)
+		blockDelayedMeter.Mark(int64(delayed))
+		blockPenaltyMeter.Mark(int64(score))
+		penalty = score
 
-		penalty = bc.penaltyForBlocks(blocks)
+		logFn("Checking the legitimity of the chain", "delayed chain length", delayed, "penalty", penalty, "description", description)
 	} else {
 		return nil
 	}
@@ -82,12 +94,13 @@ func (bc *BlockChain) CheckDelayedChain(blocks types.Blocks) error {
 	return nil
 }
 
-func (bc *BlockChain) penaltyForBlocks(blocks types.Blocks) uint64 {
-	var sum, penalty uint64
+func (bc *BlockChain) penaltyForBlocks(blocks types.Blocks) (uint64, uint64) {
+	var sum, penalty, n uint64
 	current := bc.CurrentBlock().NumberU64()
 	for _, b := range blocks {
 		if current >= b.NumberU64() {
 			penalty = current - b.NumberU64()
+			n++;
 		} else {
 			penalty = 0
 		}
@@ -98,7 +111,7 @@ func (bc *BlockChain) penaltyForBlocks(blocks types.Blocks) uint64 {
 
 		log.Warn("Penalty check", context...)
 	}
-	return sum
+	return n, sum
 }
 
 func (bc *BlockChain) setBadHash(block *types.Block, minPenalty uint64) {

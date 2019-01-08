@@ -1137,8 +1137,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, []
 	// Penalty System to check delayed chain
 	err2 := bc.CheckDelayedChain(chain)
 	if err2 != nil {
-		fmt.Println(err2.Error())
-		err = err2
+		stats.ignored += len(it.chain)
+		bc.reportBlock(block, nil, err2)
+		return it.index, events, coalescedLogs, err2
 	}
 
 	switch {
