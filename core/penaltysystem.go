@@ -43,7 +43,7 @@ var (
 // CheckDelayedChain will check possible 51% attack.
 // Penalty System penalize newly inserted blocks.
 // The amount of penalty depends on the amount of blocks mined by the malicious miner privatly.
-func (bc *BlockChain) CheckDelayedChain(blocks types.Blocks) error {
+func (bc *BlockChain) CheckDelayedChain(blocks types.Blocks, logonly, reverse bool) error {
 	current := bc.CurrentBlock().NumberU64()
 
 	if !syncing {
@@ -67,7 +67,11 @@ func (bc *BlockChain) CheckDelayedChain(blocks types.Blocks) error {
 	}
 
 	var penalty uint64
-	if syncing && current > uint64(params.PenaltySystemBlock) && current > blocks[0].NumberU64() && (current - blocks[0].NumberU64()) > delayedBlockInfoLen {
+	tipidx := 0
+	if reverse {
+		tipidx = len(blocks) - 1
+	}
+	if syncing && current > uint64(params.PenaltySystemBlock) && current > blocks[tipidx].NumberU64() && (current - blocks[tipidx].NumberU64()) > delayedBlockInfoLen {
 		delayed, score := bc.penaltyForBlocks(blocks)
 		logFn := log.Info
 		if delayed > delayedBlockWarnLen {
@@ -82,12 +86,12 @@ func (bc *BlockChain) CheckDelayedChain(blocks types.Blocks) error {
 		return nil
 	}
 
-	if penalty >= params.DelayedBlockLength*(params.DelayedBlockLength+1)/2 {
+	if !logonly && penalty >= params.DelayedBlockLength*(params.DelayedBlockLength+1)/2 {
 		context := []interface{}{
 			"penalty", penalty,
 		}
 		log.Error("Malicious Chain! We should reject it", context...)
-		bc.setBadHash(blocks[0], params.DelayedBlockLength)
+		bc.setBadHash(blocks[tipidx], params.DelayedBlockLength)
 		return ErrDelayTooHigh
 	}
 
@@ -97,6 +101,7 @@ func (bc *BlockChain) CheckDelayedChain(blocks types.Blocks) error {
 func (bc *BlockChain) penaltyForBlocks(blocks types.Blocks) (uint64, uint64) {
 	var sum, penalty, n uint64
 	current := bc.CurrentBlock().NumberU64()
+	sum = 0
 	for _, b := range blocks {
 		if current >= b.NumberU64() {
 			penalty = current - b.NumberU64()
@@ -106,7 +111,7 @@ func (bc *BlockChain) penaltyForBlocks(blocks types.Blocks) (uint64, uint64) {
 		}
 		sum += penalty
 		context := []interface{}{
-			"head", current, "number", b.NumberU64(), "penalty", penalty, "sum", sum,
+			"head", current, "number", b.NumberU64(), "hash", b.Hash() , "penalty", penalty, "sum", sum,
 		}
 
 		log.Warn("Penalty check", context...)
