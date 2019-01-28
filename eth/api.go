@@ -260,6 +260,28 @@ func NewPublicDebugAPI(eth *Ethereum) *PublicDebugAPI {
 	return &PublicDebugAPI{eth: eth}
 }
 
+// ListAccounts retrieves accounts of the database at a given block.
+func (api *PublicDebugAPI) ListAccounts(count uint64, offset *common.Address, blockNr *rpc.BlockNumber) ([]common.Address, error) {
+	var block *types.Block
+	if blockNr == nil || *blockNr == rpc.LatestBlockNumber {
+		block = api.eth.blockchain.CurrentBlock()
+	} else if *blockNr == rpc.PendingBlockNumber {
+		// Get the pending state
+		_, stateDb := api.eth.miner.Pending()
+		return stateDb.ListAccounts(count, offset), nil
+	} else {
+		block = api.eth.blockchain.GetBlockByNumber(uint64(*blockNr))
+	}
+	if block == nil {
+		return nil, fmt.Errorf("block #%d not found", *blockNr)
+	}
+	stateDb, err := api.eth.BlockChain().StateAt(block.Root())
+	if err != nil {
+		return nil, err
+	}
+	return stateDb.ListAccounts(count, offset), nil
+}
+
 // DumpBlock retrieves the entire state of the database at a given block.
 func (api *PublicDebugAPI) DumpBlock(blockNr rpc.BlockNumber) (state.Dump, error) {
 	if blockNr == rpc.PendingBlockNumber {

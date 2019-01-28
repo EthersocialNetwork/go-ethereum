@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 )
@@ -37,6 +38,26 @@ type DumpAccount struct {
 type Dump struct {
 	Root     string                 `json:"root"`
 	Accounts map[string]DumpAccount `json:"accounts"`
+}
+
+func (self *StateDB) ListAccounts(count uint64, offset *common.Address) []common.Address {
+	var accounts []common.Address
+	var it *trie.Iterator
+
+	if offset != nil && *offset != (common.Address{}) {
+		it = trie.NewIterator(self.trie.NodeIterator(crypto.Keccak256(offset[:])))
+		it.Next()
+	} else {
+		it = trie.NewIterator(self.trie.NodeIterator(nil))
+	}
+
+	for count > 0 && it.Next() {
+		if addr := self.trie.GetKey(it.Key); addr != nil {
+			accounts = append(accounts, common.BytesToAddress(addr))
+			count--
+		}
+	}
+	return accounts
 }
 
 func (self *StateDB) RawDump() Dump {

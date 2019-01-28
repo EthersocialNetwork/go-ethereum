@@ -443,6 +443,12 @@ web3._extend({
 			params: 2,
 			inputFormatter:[null, null],
 		}),
+		new web3._extend.Method({
+			name: 'listAccounts',
+			call: 'debug_listAccounts',
+			params: 3,
+			inputFormatter: [null, null, web3._extend.formatters.inputDefaultBlockNumberFormatter],
+		}),
 	],
 	properties: []
 });
