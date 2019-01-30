@@ -51,6 +51,8 @@ var (
 	blockValidationTimer = metrics.NewRegisteredTimer("chain/validation", nil)
 	blockExecutionTimer  = metrics.NewRegisteredTimer("chain/execution", nil)
 	blockWriteTimer      = metrics.NewRegisteredTimer("chain/write", nil)
+	blockReorgAddMeter   = metrics.NewRegisteredMeter("chain/reorg/drop", nil)
+	blockReorgDropMeter  = metrics.NewRegisteredMeter("chain/reorg/add", nil)
 
 	ErrNoGenesis = errors.New("Genesis not found in chain")
 )
@@ -1140,6 +1142,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, []
 	it := newInsertIterator(chain, results, bc.Validator())
 
 	block, err := it.next()
+
 	switch {
 	// First block is pruned, insert as sidechain and reorg only if TD grows enough
 	case err == consensus.ErrPrunedAncestor:
@@ -1222,6 +1225,10 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, []
 		status, err := bc.writeBlockWithState(block, receipts, state)
 		t3 := time.Now()
 		if err != nil {
+			if err == ErrDelayTooHigh {
+				stats.ignored += len(it.chain)
+				bc.reportBlock(block, nil, err)
+			}
 			return it.index, events, coalescedLogs, err
 		}
 		blockInsertTimer.UpdateSince(start)
@@ -1465,11 +1472,24 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 	}
 	// Ensure the user sees large reorgs
 	if len(oldChain) > 0 && len(newChain) > 0 {
-		logFn := log.Debug
-		if len(oldChain) > 63 {
+		logFn := log.Info
+		msg := "Chain split detected"
+		if len(oldChain) < 10 {
+			logFn = log.Debug
+			msg = "Chain reorg detected"
+		} else if len(oldChain) >= 20 {
 			logFn = log.Warn
 		}
-		logFn("Chain split detected", "number", commonBlock.Number(), "hash", commonBlock.Hash(),
+
+		// Penalty System to check delayed chain
+		err := bc.CheckDelayedChain(newChain, false, true)
+		if err == ErrDelayTooHigh {
+			return err
+		}
+
+		blockReorgAddMeter.Mark(int64(len(newChain)))
+		blockReorgDropMeter.Mark(int64(len(oldChain)))
+		logFn(msg, "number", commonBlock.Number(), "hash", commonBlock.Hash(),
 			"drop", len(oldChain), "dropfrom", oldChain[0].Hash(), "add", len(newChain), "addfrom", newChain[0].Hash())
 	} else {
 		log.Error("Impossible reorg, please file an issue", "oldnum", oldBlock.Number(), "oldhash", oldBlock.Hash(), "newnum", newBlock.Number(), "newhash", newBlock.Hash())
