@@ -18,6 +18,7 @@ package trie
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
@@ -38,6 +39,8 @@ type SecureTrie struct {
 	hashKeyBuf       [common.HashLength]byte
 	secKeyCache      map[string][]byte
 	secKeyCacheOwner *SecureTrie // Pointer to self, replace the key cache on mismatch
+
+	lock sync.RWMutex
 }
 
 // NewSecure creates a trie with an existing root node from a backing database
@@ -149,7 +152,9 @@ func (t *SecureTrie) Commit(onleaf LeafCallback) (root common.Hash, err error) {
 		}
 		t.trie.db.lock.Unlock()
 
+		t.lock.Lock()
 		t.secKeyCache = make(map[string][]byte)
+		t.lock.Unlock()
 	}
 	// Commit the trie to its intermediate node database
 	return t.trie.Commit(onleaf)
@@ -196,8 +201,10 @@ func (t *SecureTrie) hashKey(key []byte) []byte {
 // the actual cache).
 func (t *SecureTrie) getSecKeyCache() map[string][]byte {
 	if t != t.secKeyCacheOwner {
+		t.lock.Lock()
 		t.secKeyCacheOwner = t
 		t.secKeyCache = make(map[string][]byte)
+		t.lock.Unlock()
 	}
 	return t.secKeyCache
 }
