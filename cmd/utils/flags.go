@@ -182,7 +182,7 @@ var (
 	}
 	TrieTimeoutFlag = cli.DurationFlag{
 		Name:  "trietimeout",
-		Usage: `Time limit after which to flush the current in-memory trie to disk (default: 10s)`,
+		Usage: `Time limit after which to flush the current in-memory trie to disk (default: 10m)`,
 		Value: eth.DefaultConfig.TrieTimeout,
 	}
 	LightServFlag = cli.IntFlag{
