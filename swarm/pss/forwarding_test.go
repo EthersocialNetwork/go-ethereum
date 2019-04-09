@@ -12,7 +12,7 @@ import (
 	"github.com/ethersocial/go-ethersocial/p2p/protocols"
 	"github.com/ethersocial/go-ethersocial/swarm/network"
 	"github.com/ethersocial/go-ethersocial/swarm/pot"
-	whisper "github.com/ethersocial/go-ethersocial/whisper/whisperv5"
+	whisper "github.com/ethersocial/go-ethersocial/whisper/whisperv6"
 )
 
 type testCase struct {
@@ -54,6 +54,7 @@ func TestForwardBasic(t *testing.T) {
 
 	kad := network.NewKademlia(base[:], network.NewKadParams())
 	ps := createPss(t, kad)
+	defer ps.Stop()
 	addPeers(kad, peerAddresses)
 
 	const firstNearest = depth * 2 // shallowest peer in the nearest neighbours' bin

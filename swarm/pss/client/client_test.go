@@ -38,7 +38,7 @@ import (
 	"github.com/ethersocial/go-ethersocial/swarm/network"
 	"github.com/ethersocial/go-ethersocial/swarm/pss"
 	"github.com/ethersocial/go-ethersocial/swarm/state"
-	whisper "github.com/ethersocial/go-ethersocial/whisper/whisperv5"
+	whisper "github.com/ethersocial/go-ethersocial/whisper/whisperv6"
 )
 
 type protoCtrl struct {

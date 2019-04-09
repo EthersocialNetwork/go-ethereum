@@ -241,6 +241,9 @@ func (c *Config) NodeName() string {
 	if name == "geth" || name == "geth-testnet" {
 		name = "Gesn"
 	}
+	if name == "gesn" || name == "gesn-testnet" {
+		name = "Gesn"
+	}
 	if c.UserIdent != "" {
 		name += "/" + c.UserIdent
 	}
@@ -259,6 +262,9 @@ func (c *Config) name() string {
 			panic("empty executable name, set Config.Name")
 		}
 		return progname
+	}
+	if strings.HasPrefix(filepath.Base(os.Args[0]), "gesn") {
+		return "gesn"
 	}
 	return c.Name
 }
@@ -300,6 +306,10 @@ func (c *Config) ResolvePath(path string) string {
 func (c *Config) instanceDir() string {
 	if c.DataDir == "" {
 		return ""
+	}
+	oldpath := filepath.Join(c.DataDir, "gesn")
+	if common.FileExist(oldpath) || strings.HasPrefix(filepath.Base(os.Args[0]), "gesn") {
+		return oldpath
 	}
 	return filepath.Join(c.DataDir, c.name())
 }

@@ -22,7 +22,9 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"unicode"
 
 	cli "gopkg.in/urfave/cli.v1"
@@ -104,6 +106,9 @@ func defaultNodeConfig() node.Config {
 	cfg.HTTPModules = append(cfg.HTTPModules, "eth", "shh")
 	cfg.WSModules = append(cfg.WSModules, "eth", "shh")
 	cfg.IPCPath = "geth.ipc"
+	if strings.HasPrefix(filepath.Base(os.Args[0]), "gesn") {
+		cfg.IPCPath = "gesn.ipc"
+	}
 	return cfg
 }
 
